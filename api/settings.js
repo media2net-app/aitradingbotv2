@@ -46,7 +46,14 @@ export default async function handler(req, res) {
       });
     } catch (e) {
       console.error('Settings GET error:', e);
-      return res.status(500).json(defaults);
+      // Return 200 with defaults so command center keeps working; add warning for debugging
+      const msg = e?.message || String(e);
+      return res.status(200).json({
+        ...defaults,
+        tradingEnabled: true,
+        updatedAt: new Date().toISOString(),
+        _warning: 'Database error: ' + msg + '. Run: npx prisma db push',
+      });
     }
   }
 
@@ -85,7 +92,12 @@ export default async function handler(req, res) {
       });
     } catch (e) {
       console.error('Settings POST error:', e);
-      return res.status(500).json({ error: 'Database error' });
+      const msg = e?.message || String(e);
+      return res.status(500).json({
+        error: 'Database error',
+        details: msg,
+        hint: 'Ensure DATABASE_URL is set and run: npx prisma db push',
+      });
     }
   }
 

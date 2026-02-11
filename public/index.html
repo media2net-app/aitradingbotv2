@@ -326,11 +326,16 @@
       resEl.className = 'debug-result';
       try {
         const r = await fetch('/api/settings');
-        const ok = r.ok;
-        const data = ok ? await r.json() : null;
-        if (ok && data && (data.riskPercent !== undefined || data.tradingEnabled !== undefined)) {
+        const data = await r.json().catch(() => null);
+        if (r.ok && data && (data.riskPercent !== undefined || data.tradingEnabled !== undefined)) {
           resEl.textContent = 'API bereikbaar: ja (settings ontvangen)';
           resEl.classList.add('ok');
+          if (data._warning) {
+            resEl.innerHTML = 'API bereikbaar: ja · <span class="err">' + escapeHtml(data._warning) + '</span>';
+          }
+        } else if (!r.ok && data && (data.details || data.hint)) {
+          resEl.innerHTML = 'API fout ' + r.status + ': ' + escapeHtml(data.details || data.error) + (data.hint ? ' — ' + escapeHtml(data.hint) : '');
+          resEl.classList.add('err');
         } else {
           resEl.textContent = 'API antwoordde met status ' + r.status;
           resEl.classList.add('err');

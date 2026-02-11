@@ -20,8 +20,8 @@ Centraal dashboard voor de XAUUSD_AI_EA: welke VPS/account verbonden is, balance
    - **Geen** Root Directory instellen (root van de repo gebruiken).
 
 2. **Database (Prisma/Postgres)**
-   - Zet **DATABASE_URL** in Environment Variables (bijv. Prisma Accelerate URL).
-   - Lokaal eenmalig: `npx prisma db push` om tabellen (Log, Setting, Connection) aan te maken.
+   - De app gebruikt **PRISMA_DATABASE_URL** (zo staat het in het schema). Je hoeft bestaande variabelen niet te verwijderen; zorg dat **PRISMA_DATABASE_URL** staat op de URL die je voor de app wilt gebruiken (bijv. Prisma Accelerate voor serverless).
+   - Tabellen aanmaken: lokaal in `.env` tijdelijk **PRISMA_DATABASE_URL** zetten op je **directe** Postgres-URL (bijv. `postgres://...@db.prisma.io:5432/...`), dan `npm run db:push` of `npx prisma db push`. Daarna op Vercel weer de Accelerate-URL gebruiken.
 
 3. **Domein**
    - Settings → Domains → voeg `api.aitrading.software` toe.
