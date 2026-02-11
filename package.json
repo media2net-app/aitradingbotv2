@@ -1,0 +1,11 @@
+{
+  "name": "aitradingbotv2-api",
+  "version": "1.0.0",
+  "description": "EA log API for api.aitrading.software - receive MT5 EA logs, view in dashboard",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@vercel/kv": "^0.2.0"
+  }
+}
+
