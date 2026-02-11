@@ -44,6 +44,22 @@
     .conn-trades th { color: var(--muted); font-weight: 500; }
     .no-conn { color: var(--muted); padding: 1rem; text-align: center; background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; }
 
+    .debug-box { background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; padding: 1rem; margin-top: 0.75rem; }
+    .debug-box h3 { font-size: 0.875rem; margin: 0 0 0.5rem 0; color: var(--yellow); }
+    .debug-list { font-size: 0.8125rem; line-height: 1.6; color: var(--muted); margin: 0; padding-left: 1.25rem; }
+    .debug-list li { margin-bottom: 0.25rem; }
+    .debug-list .ok { color: var(--green); }
+    .debug-list .fail { color: var(--red); }
+    .debug-list .action { color: var(--text); }
+    .debug-test { margin-top: 0.75rem; }
+    .debug-test button { background: #25252b; color: var(--text); border: 1px solid #3a3a42; border-radius: 4px; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.8125rem; }
+    .debug-test button:hover { background: #2a2a30; }
+    .debug-result { margin-top: 0.5rem; font-size: 0.8125rem; }
+    .debug-result.ok { color: var(--green); }
+    .debug-result.err { color: var(--red); }
+    .muted { color: var(--muted); }
+    code { background: #25252b; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.8em; }
+
     .status { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
     .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
     .status.empty .dot { background: var(--muted); }
@@ -81,6 +97,21 @@
   <h2>Verbonden VPS / accounts</h2>
   <div id="connectionsContainer" class="connections">
     <div class="no-conn">Geen verbindingen. Zet in de EA <strong>UseWebHeartbeat = true</strong> en zorg dat de EA draait.</div>
+  </div>
+
+  <div class="debug-box" id="debugBox">
+    <h3>🔧 Debug – verbinding controleren</h3>
+    <ul class="debug-list" id="debugList">
+      <li class="action">1. In MT5: EA op chart → rechtermuisklik → Expert Advisors → <strong>Properties</strong></li>
+      <li class="action">2. Zet <strong>UseWebHeartbeat = true</strong> en <strong>UseWebLog = true</strong></li>
+      <li class="action">3. MT5: <strong>Tools → Options → Expert Advisors</strong> → vink "Allow WebRequest for listed URL" aan en voeg toe: <code>https://api.aitrading.software</code></li>
+      <li class="action">4. EA opnieuw starten (chart herladen of EA opnieuw aan chart koppelen)</li>
+      <li id="debugApiStatus">5. API-bereikbaarheid: <span class="muted">Klik op "Test API"</span></li>
+    </ul>
+    <div class="debug-test">
+      <button type="button" id="debugTestBtn">Test API</button>
+      <div class="debug-result" id="debugResult"></div>
+    </div>
   </div>
 
   <h2>Live log</h2>
@@ -287,6 +318,27 @@
     document.getElementById('level').addEventListener('change', (e) => {
       levelFilter = e.target.value;
       fetchLogs();
+    });
+
+    document.getElementById('debugTestBtn').addEventListener('click', async () => {
+      const resEl = document.getElementById('debugResult');
+      resEl.textContent = 'Bezig…';
+      resEl.className = 'debug-result';
+      try {
+        const r = await fetch('/api/settings');
+        const ok = r.ok;
+        const data = ok ? await r.json() : null;
+        if (ok && data && (data.riskPercent !== undefined || data.tradingEnabled !== undefined)) {
+          resEl.textContent = 'API bereikbaar: ja (settings ontvangen)';
+          resEl.classList.add('ok');
+        } else {
+          resEl.textContent = 'API antwoordde met status ' + r.status;
+          resEl.classList.add('err');
+        }
+      } catch (e) {
+        resEl.textContent = 'Fout: ' + e.message + ' (CORS of netwerk – controleer of je op api.aitrading.software bent)';
+        resEl.classList.add('err');
+      }
     });
 
     loadSettings();

@@ -43,7 +43,7 @@ input double           TrailStepPoints  = 300;             // Trailing step in p
 input bool             ShowVPSHeartbeat = true;            // Log status periodically (for VPS monitoring)
 
 //--- web log (api.aitrading.software)
-input bool             UseWebLog        = false;           // Send logs to web dashboard
+input bool             UseWebLog        = true;            // Send logs to web dashboard
 input string           WebLogUrl        = "https://api.aitrading.software/api/log";  // Log API URL
 input string           WebLogSecret    = "";              // Optional: same as LOG_API_KEY on Vercel
 
@@ -55,7 +55,7 @@ input bool             UseWebSettings   = false;           // Instellingen van w
 input string           WebSettingsUrl   = "https://api.aitrading.software/api/settings";  // Settings API
 
 //--- command center: heartbeat (VPS/account/positions naar dashboard)
-input bool             UseWebHeartbeat  = false;           // Stuur account + posities naar command center
+input bool             UseWebHeartbeat  = true;            // Stuur account + posities naar command center
 input string           WebHeartbeatUrl  = "https://api.aitrading.software/api/heartbeat";  // Heartbeat API
 
 //+------------------------------------------------------------------+
