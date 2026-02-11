@@ -5,7 +5,10 @@
   "type": "module",
   "engines": { "node": ">=18" },
   "dependencies": {
-    "@vercel/kv": "^0.2.0"
+    "@prisma/client": "^5.18.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.18.0"
   }
 }
 

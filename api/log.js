@@ -1,7 +1,10 @@
-import { kv } from '@vercel/kv';
+import { PrismaClient } from '@prisma/client';
 
-const LOG_KEY = 'ea-logs';
-const MAX_LOGS = 500;
+let prisma;
+if (!globalThis._prisma) {
+  globalThis._prisma = new PrismaClient();
+}
+prisma = globalThis._prisma;
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -38,20 +41,19 @@ export default async function handler(req, res) {
   const symbol = body.symbol ?? '';
   const source = body.source ?? 'XAUUSD_AI_EA';
 
-  const entry = JSON.stringify({
-    time,
-    level,
-    symbol,
-    source,
-    message: String(message).slice(0, 2000),
-  });
-
   try {
-    await kv.lpush(LOG_KEY, entry);
-    await kv.ltrim(LOG_KEY, 0, MAX_LOGS - 1);
+    await prisma.log.create({
+      data: {
+        time,
+        level,
+        symbol,
+        source,
+        message: String(message).slice(0, 2000),
+      },
+    });
   } catch (e) {
-    console.error('KV error:', e);
-    return res.status(500).json({ error: 'Storage error', ok: false });
+    console.error('Prisma error:', e);
+    return res.status(500).json({ error: 'Database error', ok: false });
   }
 
   return res.status(200).json({ ok: true });

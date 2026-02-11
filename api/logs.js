@@ -1,6 +1,11 @@
-import { kv } from '@vercel/kv';
+import { PrismaClient } from '@prisma/client';
 
-const LOG_KEY = 'ea-logs';
+let prisma;
+if (!globalThis._prisma) {
+  globalThis._prisma = new PrismaClient();
+}
+prisma = globalThis._prisma;
+
 const DEFAULT_LIMIT = 200;
 
 export default async function handler(req, res) {
@@ -15,20 +20,21 @@ export default async function handler(req, res) {
   const limit = Math.min(parseInt(req.query?.limit, 10) || DEFAULT_LIMIT, 500);
 
   try {
-    const raw = await kv.lrange(LOG_KEY, 0, limit - 1);
-    const logs = raw
-      .map((s) => {
-        try {
-          return JSON.parse(s);
-        } catch {
-          return { time: '', level: 'info', message: s, symbol: '', source: '' };
-        }
-      })
-      .filter(Boolean);
+    const rows = await prisma.log.findMany({
+      orderBy: { id: 'desc' },
+      take: limit,
+    });
+    const logs = rows.map((r) => ({
+      time: r.createdAt?.toISOString?.() || r.createdAt,
+      level: r.level,
+      symbol: r.symbol,
+      source: r.source,
+      message: r.message,
+    }));
     return res.status(200).json({ logs });
   } catch (e) {
-    console.error('KV error:', e);
-    return res.status(500).json({ logs: [], error: 'Storage error' });
+    console.error('Prisma error:', e);
+    return res.status(500).json({ logs: [], error: 'Database error' });
   }
 }
 

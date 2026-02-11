@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": null,
+  "buildCommand": "npx prisma generate",
   "rewrites": [
     { "source": "/", "destination": "/index.html" },
     { "source": "/logs", "destination": "/index.html" }
