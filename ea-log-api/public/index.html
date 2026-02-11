@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EA Log – api.aitrading.software</title>
+  <style>
+    :root { --bg: #0f0f12; --card: #1a1a20; --text: #e4e4e7; --muted: #71717a; --green: #22c55e; --yellow: #eab308; --red: #ef4444; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1rem; min-height: 100vh; }
+    h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem 0; }
+    .sub { color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem; }
+    .status { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+    .status.empty .dot { background: var(--muted); }
+    @keyframes pulse { 50% { opacity: 0.6; } }
+    .log-box { background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; overflow: hidden; }
+    .log-toolbar { padding: 0.5rem 0.75rem; border-bottom: 1px solid #2a2a30; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .log-toolbar label { font-size: 0.8125rem; color: var(--muted); }
+    .log-toolbar select { background: #25252b; color: var(--text); border: 1px solid #3a3a42; border-radius: 4px; padding: 0.25rem 0.5rem; }
+    #logList { padding: 0.5rem; max-height: 70vh; overflow-y: auto; font-size: 0.8125rem; font-family: ui-monospace, monospace; line-height: 1.5; }
+    .log-line { padding: 0.25rem 0.5rem; border-radius: 4px; margin-bottom: 2px; word-break: break-word; }
+    .log-line .ts { color: var(--muted); margin-right: 0.5rem; }
+    .log-line.level-info { color: var(--text); }
+    .log-line.level-warn { background: rgba(234,179,8,0.1); color: var(--yellow); }
+    .log-line.level-error { background: rgba(239,68,68,0.1); color: var(--red); }
+    .log-line.vps { background: rgba(34,197,94,0.08); color: var(--green); }
+    .log-line.signal { background: rgba(59,130,246,0.08); }
+    .log-line.trade { background: rgba(34,197,94,0.12); color: var(--green); }
+    .empty { color: var(--muted); padding: 1rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>EA Log</h1>
+  <p class="sub">Live log van XAUUSD_AI_EA op VPS · api.aitrading.software</p>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Laden…</span></div>
+
+  <div class="log-box" style="margin-top: 1rem;">
+    <div class="log-toolbar">
+      <label>Refresh</label>
+      <select id="interval">
+        <option value="3">3 sec</option>
+        <option value="5">5 sec</option>
+        <option value="10">10 sec</option>
+      </select>
+      <label>Niveau</label>
+      <select id="level">
+        <option value="all">Alles</option>
+        <option value="info">Info</option>
+        <option value="warn">Warn</option>
+        <option value="error">Error</option>
+      </select>
+    </div>
+    <div id="logList" class="empty">Geen logs nog. Zorg dat de EA WebLogUrl heeft ingesteld en dat er logs binnenkomen.</div>
+  </div>
+
+  <script>
+    const logList = document.getElementById('logList');
+    const statusEl = document.getElementById('status');
+    const statusText = document.getElementById('statusText');
+    let intervalMs = 3000;
+    let levelFilter = 'all';
+
+    function rowClass(entry) {
+      const msg = (entry.message || '').toLowerCase();
+      if (msg.includes('[vps]') || msg.includes('ok |')) return 'vps';
+      if (msg.includes('signaldir=') || msg.includes('confidence=')) return 'signal';
+      if (msg.includes('opened ') || msg.includes('trailing stop')) return 'trade';
+      return 'level-' + (entry.level || 'info');
+    }
+
+    function formatTime(t) {
+      if (!t) return '–';
+      const d = new Date(t);
+      return isNaN(d.getTime()) ? t : d.toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'medium' });
+    }
+
+    function render(logs) {
+      const filtered = levelFilter === 'all'
+        ? logs
+        : logs.filter((e) => (e.level || 'info') === levelFilter);
+      if (filtered.length === 0) {
+        logList.innerHTML = '<div class="empty">Geen logs (of geen match voor filter).</div>';
+        logList.classList.add('empty');
+        return;
+      }
+      logList.classList.remove('empty');
+      logList.innerHTML = filtered
+        .map(
+          (e) =>
+            `<div class="log-line ${rowClass(e)}" title="${(e.message || '').slice(0, 200)}">
+              <span class="ts">${formatTime(e.time)}</span>
+              ${(e.symbol ? `<span class="sym">[${e.symbol}]</span> ` : '')}
+              ${escapeHtml(e.message || '')}
+            </div>`
+        )
+        .join('');
+      logList.scrollTop = 0;
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    async function fetchLogs() {
+      try {
+        const r = await fetch('/api/logs?limit=200');
+        const data = await r.json();
+        const logs = Array.isArray(data.logs) ? data.logs : [];
+        render(logs);
+        statusText.textContent = logs.length > 0 ? `Laatste update: ${logs.length} logs` : 'Geen logs nog';
+        statusEl.classList.toggle('empty', logs.length === 0);
+      } catch (err) {
+        statusText.textContent = 'Fout bij ophalen: ' + err.message;
+        statusEl.classList.add('empty');
+      }
+    }
+
+    document.getElementById('interval').addEventListener('change', (e) => {
+      intervalMs = parseInt(e.target.value, 10) * 1000;
+      clearInterval(window._poll);
+      window._poll = setInterval(fetchLogs, intervalMs);
+    });
+    document.getElementById('level').addEventListener('change', (e) => {
+      levelFilter = e.target.value;
+      fetchLogs();
+    });
+
+    fetchLogs();
+    window._poll = setInterval(fetchLogs, intervalMs);
+  </script>
+</body>
+</html>
