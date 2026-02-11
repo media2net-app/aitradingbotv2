@@ -3,22 +3,56 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>EA Log – api.aitrading.software</title>
+  <title>Command center – api.aitrading.software</title>
   <style>
-    :root { --bg: #0f0f12; --card: #1a1a20; --text: #e4e4e7; --muted: #71717a; --green: #22c55e; --yellow: #eab308; --red: #ef4444; }
+    :root { --bg: #0f0f12; --card: #1a1a20; --text: #e4e4e7; --muted: #71717a; --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6; }
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1rem; min-height: 100vh; }
-    h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1rem; min-height: 100vh; max-width: 1200px; margin-left: auto; margin-right: auto; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.25rem 0; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem 0; color: var(--muted); }
     .sub { color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .cmd-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .toggle-wrap { display: flex; align-items: center; gap: 0.75rem; background: var(--card); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #2a2a30; }
+    .toggle-label { font-weight: 600; font-size: 1rem; }
+    .toggle-btn { width: 52px; height: 28px; border-radius: 14px; border: none; cursor: pointer; position: relative; transition: background 0.2s; }
+    .toggle-btn.on { background: var(--green); }
+    .toggle-btn.off { background: var(--muted); }
+    .toggle-btn::after { content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #fff; top: 3px; transition: left 0.2s; }
+    .toggle-btn.on::after { left: 27px; }
+    .toggle-btn.off::after { left: 3px; }
+    .toggle-status { font-size: 0.875rem; color: var(--muted); }
+    .toggle-status.on { color: var(--green); }
+    .toggle-status.off { color: var(--red); }
+
+    .connections { display: grid; gap: 1rem; }
+    .conn-card { background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; overflow: hidden; }
+    .conn-head { padding: 0.75rem 1rem; border-bottom: 1px solid #2a2a30; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .conn-name { font-weight: 600; }
+    .conn-meta { font-size: 0.8125rem; color: var(--muted); }
+    .conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; padding: 1rem; }
+    .conn-kv { font-size: 0.8125rem; }
+    .conn-kv .k { color: var(--muted); }
+    .conn-kv .v { font-weight: 500; }
+    .conn-kv .v.profit { color: var(--green); }
+    .conn-kv .v.loss { color: var(--red); }
+    .conn-trades { padding: 0 1rem 1rem; }
+    .conn-trades table { width: 100%; font-size: 0.75rem; border-collapse: collapse; }
+    .conn-trades th, .conn-trades td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #2a2a30; }
+    .conn-trades th { color: var(--muted); font-weight: 500; }
+    .no-conn { color: var(--muted); padding: 1rem; text-align: center; background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; }
+
     .status { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
     .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
     .status.empty .dot { background: var(--muted); }
     @keyframes pulse { 50% { opacity: 0.6; } }
-    .log-box { background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; overflow: hidden; }
+    .log-box { background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; overflow: hidden; margin-top: 1rem; }
     .log-toolbar { padding: 0.5rem 0.75rem; border-bottom: 1px solid #2a2a30; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
     .log-toolbar label { font-size: 0.8125rem; color: var(--muted); }
     .log-toolbar select { background: #25252b; color: var(--text); border: 1px solid #3a3a42; border-radius: 4px; padding: 0.25rem 0.5rem; }
-    #logList { padding: 0.5rem; max-height: 70vh; overflow-y: auto; font-size: 0.8125rem; font-family: ui-monospace, monospace; line-height: 1.5; }
+    #logList { padding: 0.5rem; max-height: 50vh; overflow-y: auto; font-size: 0.8125rem; font-family: ui-monospace, monospace; line-height: 1.5; }
     .log-line { padding: 0.25rem 0.5rem; border-radius: 4px; margin-bottom: 2px; word-break: break-word; }
     .log-line .ts { color: var(--muted); margin-right: 0.5rem; }
     .log-line.level-info { color: var(--text); }
@@ -31,11 +65,28 @@
   </style>
 </head>
 <body>
-  <h1>EA Log</h1>
-  <p class="sub">Live log van XAUUSD_AI_EA op VPS · api.aitrading.software</p>
-  <div class="status" id="status"><span class="dot"></span><span id="statusText">Laden…</span></div>
+  <h1>Command center</h1>
+  <p class="sub">api.aitrading.software · <a href="/settings">Instellingen</a></p>
 
-  <div class="log-box" style="margin-top: 1rem;">
+  <div class="cmd-row">
+    <div class="toggle-wrap">
+      <button type="button" class="toggle-btn" id="tradingToggle" title="AI trading aan/uit"></button>
+      <div>
+        <div class="toggle-label">AI trading</div>
+        <div class="toggle-status" id="tradingStatus">Laden…</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Verbonden VPS / accounts</h2>
+  <div id="connectionsContainer" class="connections">
+    <div class="no-conn">Geen verbindingen. Zet in de EA <strong>UseWebHeartbeat = true</strong> en zorg dat de EA draait.</div>
+  </div>
+
+  <h2>Live log</h2>
+  <div class="status" id="status"><span class="dot" id="dot"></span><span id="statusText">Laden…</span></div>
+  <div class="sub" id="eaStatus" style="margin-top:0.25rem;"></div>
+  <div class="log-box">
     <div class="log-toolbar">
       <label>Refresh</label>
       <select id="interval">
@@ -51,15 +102,119 @@
         <option value="error">Error</option>
       </select>
     </div>
-    <div id="logList" class="empty">Geen logs nog. Zorg dat de EA WebLogUrl heeft ingesteld en dat er logs binnenkomen.</div>
+    <div id="logList" class="empty">Geen logs.</div>
   </div>
 
   <script>
     const logList = document.getElementById('logList');
     const statusEl = document.getElementById('status');
     const statusText = document.getElementById('statusText');
+    const tradingToggle = document.getElementById('tradingToggle');
+    const tradingStatus = document.getElementById('tradingStatus');
+    const connectionsContainer = document.getElementById('connectionsContainer');
     let intervalMs = 3000;
     let levelFilter = 'all';
+    let tradingEnabled = true;
+
+    function formatTime(t) {
+      if (!t) return '–';
+      const d = new Date(t);
+      return isNaN(d.getTime()) ? t : d.toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'medium' });
+    }
+    function formatAgo(t) {
+      if (!t) return '–';
+      const d = new Date(t);
+      const min = (Date.now() - d.getTime()) / 60000;
+      if (min < 1) return 'zojuist';
+      if (min < 60) return Math.round(min) + ' min geleden';
+      return Math.round(min / 60) + ' u geleden';
+    }
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    async function loadSettings() {
+      try {
+        const r = await fetch('/api/settings');
+        const s = await r.json();
+        tradingEnabled = s.tradingEnabled !== false;
+        tradingToggle.classList.toggle('on', tradingEnabled);
+        tradingToggle.classList.toggle('off', !tradingEnabled);
+        tradingStatus.textContent = tradingEnabled ? 'AAN' : 'UIT';
+        tradingStatus.classList.toggle('on', tradingEnabled);
+        tradingStatus.classList.toggle('off', !tradingEnabled);
+      } catch (e) {
+        tradingStatus.textContent = 'Kon niet laden';
+      }
+    }
+
+    async function setTradingEnabled(enabled) {
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tradingEnabled: enabled }),
+        });
+        const s = await r.json();
+        if (s.error) throw new Error(s.error);
+        tradingEnabled = s.tradingEnabled !== false;
+        tradingToggle.classList.toggle('on', tradingEnabled);
+        tradingToggle.classList.toggle('off', !tradingEnabled);
+        tradingStatus.textContent = tradingEnabled ? 'AAN' : 'UIT';
+        tradingStatus.classList.toggle('on', tradingEnabled);
+        tradingStatus.classList.toggle('off', !tradingEnabled);
+      } catch (e) {
+        tradingStatus.textContent = 'Fout: ' + e.message;
+      }
+    }
+
+    tradingToggle.addEventListener('click', () => {
+      setTradingEnabled(!tradingEnabled);
+    });
+
+    function renderConnections(connections) {
+      if (!connections || connections.length === 0) {
+        connectionsContainer.innerHTML = '<div class="no-conn">Geen verbindingen. Zet in de EA <strong>UseWebHeartbeat = true</strong> en zorg dat de EA draait.</div>';
+        return;
+      }
+      connectionsContainer.innerHTML = connections.map((c) => {
+        const trades = Array.isArray(c.openTrades) ? c.openTrades : [];
+        const profitClass = (c.floatingProfit || 0) >= 0 ? 'profit' : 'loss';
+        const rows = trades.length
+          ? '<table><thead><tr><th>Symbol</th><th>Type</th><th>Volume</th><th>Open</th><th>Huidig</th><th>P/L</th><th>SL</th><th>TP</th></tr></thead><tbody>' +
+            trades.map((t) => '<tr><td>' + escapeHtml(t.symbol || '') + '</td><td>' + (t.type === 0 ? 'BUY' : 'SELL') + '</td><td>' + (t.volume ?? '') + '</td><td>' + (t.openPrice ?? '') + '</td><td>' + (t.currentPrice ?? '') + '</td><td class="' + ((t.profit || 0) >= 0 ? 'profit' : 'loss') + '">' + (t.profit ?? '') + '</td><td>' + (t.sl ?? '') + '</td><td>' + (t.tp ?? '') + '</td></tr>').join('') + '</tbody></table>'
+          : '<p class="empty">Geen open posities</p>';
+        return (
+          '<div class="conn-card">' +
+          '<div class="conn-head">' +
+          '<span class="conn-name">' + escapeHtml(c.hostname || 'VPS') + ' · Account ' + escapeHtml(String(c.accountId)) + '</span>' +
+          '<span class="conn-meta">Laatst gezien: ' + formatAgo(c.lastSeen) + (c.serverName ? ' · ' + escapeHtml(c.serverName) : '') + '</span>' +
+          '</div>' +
+          '<div class="conn-grid">' +
+          '<div class="conn-kv"><span class="k">Balance</span><br><span class="v">' + (c.balance != null ? Number(c.balance).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+          '<div class="conn-kv"><span class="k">Equity</span><br><span class="v">' + (c.equity != null ? Number(c.equity).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+          '<div class="conn-kv"><span class="k">Margin</span><br><span class="v">' + (c.margin != null ? Number(c.margin).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+          '<div class="conn-kv"><span class="k">Vrije marge</span><br><span class="v">' + (c.freeMargin != null ? Number(c.freeMargin).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+          '<div class="conn-kv"><span class="k">Open posities</span><br><span class="v">' + (c.openTradesCount ?? 0) + '</span></div>' +
+          '<div class="conn-kv"><span class="k">Floating P/L</span><br><span class="v ' + profitClass + '">' + (c.floatingProfit != null ? Number(c.floatingProfit).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+          '</div>' +
+          '<div class="conn-trades">' + rows + '</div>' +
+          '</div>'
+        );
+      }).join('');
+    }
+
+    async function fetchConnections() {
+      try {
+        const r = await fetch('/api/connections?maxAge=60');
+        const data = await r.json();
+        renderConnections(data.connections || []);
+      } catch (e) {
+        connectionsContainer.innerHTML = '<div class="no-conn">Kon verbindingen niet ophalen.</div>';
+      }
+    }
 
     function rowClass(entry) {
       const msg = (entry.message || '').toLowerCase();
@@ -69,39 +224,43 @@
       return 'level-' + (entry.level || 'info');
     }
 
-    function formatTime(t) {
-      if (!t) return '–';
-      const d = new Date(t);
-      return isNaN(d.getTime()) ? t : d.toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'medium' });
-    }
-
     function render(logs) {
-      const filtered = levelFilter === 'all'
-        ? logs
-        : logs.filter((e) => (e.level || 'info') === levelFilter);
+      const filtered = levelFilter === 'all' ? logs : logs.filter((e) => (e.level || 'info') === levelFilter);
       if (filtered.length === 0) {
         logList.innerHTML = '<div class="empty">Geen logs (of geen match voor filter).</div>';
         logList.classList.add('empty');
         return;
       }
       logList.classList.remove('empty');
-      logList.innerHTML = filtered
-        .map(
-          (e) =>
-            `<div class="log-line ${rowClass(e)}" title="${(e.message || '').slice(0, 200)}">
-              <span class="ts">${formatTime(e.time)}</span>
-              ${(e.symbol ? `<span class="sym">[${e.symbol}]</span> ` : '')}
-              ${escapeHtml(e.message || '')}
-            </div>`
-        )
-        .join('');
+      logList.innerHTML = filtered.map((e) =>
+        '<div class="log-line ' + rowClass(e) + '" title="' + escapeHtml((e.message || '').slice(0, 200)) + '">' +
+        '<span class="ts">' + formatTime(e.time) + '</span>' +
+        (e.symbol ? '<span class="sym">[' + escapeHtml(e.symbol) + ']</span> ' : '') +
+        escapeHtml(e.message || '') +
+        '</div>'
+      ).join('');
       logList.scrollTop = 0;
     }
 
-    function escapeHtml(s) {
-      const div = document.createElement('div');
-      div.textContent = s;
-      return div.innerHTML;
+    const EA_CONNECTED_MINUTES = 10;
+    function updateEaStatus(logs) {
+      const el = document.getElementById('eaStatus');
+      const dot = document.getElementById('dot');
+      if (!logs || logs.length === 0) {
+        el.textContent = 'EA status: Geen logs. Zet UseWebLog aan in de EA.';
+        dot.style.background = 'var(--muted)';
+        return;
+      }
+      const lastTime = logs[0].time;
+      const last = lastTime ? new Date(lastTime) : null;
+      const minAgo = last ? (Date.now() - last.getTime()) / 60000 : 999;
+      if (minAgo <= EA_CONNECTED_MINUTES) {
+        el.textContent = 'EA verbonden (laatste log ' + (minAgo < 1 ? 'zojuist' : Math.round(minAgo) + ' min geleden') + ')';
+        dot.style.background = 'var(--green)';
+      } else {
+        el.textContent = 'EA niet recent actief (laatste log ' + (last ? last.toLocaleString('nl-NL') : '–') + ')';
+        dot.style.background = 'var(--muted)';
+      }
     }
 
     async function fetchLogs() {
@@ -110,27 +269,31 @@
         const data = await r.json();
         const logs = Array.isArray(data.logs) ? data.logs : [];
         render(logs);
-        statusText.textContent = logs.length > 0 ? `Laatste update: ${logs.length} logs` : 'Geen logs nog';
+        updateEaStatus(logs);
+        statusText.textContent = logs.length > 0 ? 'Laatste update: ' + logs.length + ' logs' : 'Geen logs';
         statusEl.classList.toggle('empty', logs.length === 0);
       } catch (err) {
-        statusText.textContent = 'Fout bij ophalen: ' + err.message;
+        statusText.textContent = 'Fout: ' + err.message;
         statusEl.classList.add('empty');
+        document.getElementById('eaStatus').textContent = 'Kon logs niet ophalen.';
       }
     }
 
     document.getElementById('interval').addEventListener('change', (e) => {
       intervalMs = parseInt(e.target.value, 10) * 1000;
-      clearInterval(window._poll);
-      window._poll = setInterval(fetchLogs, intervalMs);
+      clearInterval(window._logPoll);
+      window._logPoll = setInterval(fetchLogs, intervalMs);
     });
     document.getElementById('level').addEventListener('change', (e) => {
       levelFilter = e.target.value;
       fetchLogs();
     });
 
+    loadSettings();
+    fetchConnections();
     fetchLogs();
-    window._poll = setInterval(fetchLogs, intervalMs);
+    setInterval(fetchConnections, 15000);
+    window._logPoll = setInterval(fetchLogs, intervalMs);
   </script>
 </body>
 </html>
-

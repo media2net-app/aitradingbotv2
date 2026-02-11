@@ -3,7 +3,8 @@
   "buildCommand": "npx prisma generate",
   "rewrites": [
     { "source": "/", "destination": "/index.html" },
-    { "source": "/logs", "destination": "/index.html" }
+    { "source": "/logs", "destination": "/index.html" },
+    { "source": "/settings", "destination": "/settings.html" }
   ],
   "headers": [
     {
@@ -16,4 +17,3 @@
     }
   ]
 }
-

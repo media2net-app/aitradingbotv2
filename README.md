@@ -1,13 +1,17 @@
-# EA Log API – api.aitrading.software
+# Command center – api.aitrading.software
 
-Kleine API + dashboard om live logs van de XAUUSD_AI_EA (MT5/VPS) te ontvangen en te bekijken.
+Centraal dashboard voor de XAUUSD_AI_EA: welke VPS/account verbonden is, balance/equity/open trades, en **AI trading AAN/UIT** vanaf de website.
 
 ## Projectstructuur
 
-- `api/log.js` – POST endpoint waar de EA logs heen stuurt.
-- `api/logs.js` – GET endpoint om de laatste logs op te halen.
-- `public/index.html` – Frontend dashboard dat `/api/logs` pollt.
-- `XAUUSD_AI_EA.mq5` – De MT5 Expert Advisor met WebLog-ondersteuning.
+- `api/log.js` – POST logs van de EA.
+- `api/logs.js` – GET laatste logs.
+- `api/settings.js` – GET/POST instellingen (incl. **tradingEnabled** = AI aan/uit).
+- `api/heartbeat.js` – POST account + posities van de EA (VPS/account/balance/trades).
+- `api/connections.js` – GET lijst verbonden VPS/accounts.
+- `public/index.html` – **Command center**: verbindingen, toggle AI trading, live log.
+- `public/settings.html` – Instellingen (incl. AI trading aan/uit).
+- `XAUUSD_AI_EA.mq5` – EA met WebLog, web settings en heartbeat.
 
 ## Deploy op Vercel
 
@@ -15,9 +19,9 @@ Kleine API + dashboard om live logs van de XAUUSD_AI_EA (MT5/VPS) te ontvangen e
    - Vercel Dashboard → New Project → Import deze repo (`aitradingbotv2`).
    - **Geen** Root Directory instellen (root van de repo gebruiken).
 
-2. **Vercel KV (Redis) toevoegen**
-   - In het project: Storage → Create Database → KV (Upstash Redis).
-   - Zo wordt `@vercel/kv` gekoppeld en krijg je o.a. `KV_REST_API_URL` en `KV_REST_API_TOKEN`.
+2. **Database (Prisma/Postgres)**
+   - Zet **DATABASE_URL** in Environment Variables (bijv. Prisma Accelerate URL).
+   - Lokaal eenmalig: `npx prisma db push` om tabellen (Log, Setting, Connection) aan te maken.
 
 3. **Domein**
    - Settings → Domains → voeg `api.aitrading.software` toe.
@@ -29,7 +33,8 @@ Kleine API + dashboard om live logs van de XAUUSD_AI_EA (MT5/VPS) te ontvangen e
 ## Endpoints
 
 - **POST /api/log** – EA stuurt hier logs naartoe (JSON body: `message`, `level`, `time`, `symbol`, `source`). Optioneel header: `X-API-Key`.
-- **GET /api/logs** – Geeft de laatste logs (voor het dashboard). Query: `?limit=200`.
+- **GET /api/logs** – Laatste logs (dashboard). Query: `?limit=200`.
+- **GET /api/settings** – Instellingen voor de EA. **POST /api/settings** – Opslaan (vanaf /settings).
 
 ## Dashboard
 
@@ -39,5 +44,6 @@ Kleine API + dashboard om live logs van de XAUUSD_AI_EA (MT5/VPS) te ontvangen e
 
 1. **Tools → Options → Expert Advisors** → vink “Allow WebRequest for listed URL” aan.
 2. Voeg toe: `https://api.aitrading.software`
-3. In de EA: **WebLogUrl** = `https://api.aitrading.software/api/log`, eventueel **WebLogSecret** = je `LOG_API_KEY`.
+3. **UseWebSettings = true** → EA haalt instellingen (en **tradingEnabled**) van /api/settings.
+4. **UseWebHeartbeat = true** en **WebHeartbeatUrl** = `https://api.aitrading.software/api/heartbeat` → account + posities in command center.
 

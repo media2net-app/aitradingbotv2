@@ -3,9 +3,10 @@
 //|       Simple XAUUSD AI-style trading EA skeleton                 |
 //|       Uses indicator logic + confidence score, AI-ready stub     |
 //|                                                                  |
-//|  VPS (MQL5): 1) Attach to XAUUSD M15 chart. 2) Enable AutoTrading.|
-//|  3) Account Navigator > right-click account > Migrate > Migrate  |
-//|  All. 4) Check VPS Journal for "[VPS] ... OK" heartbeat each hour.|
+//|  VPS (MQL5): 1) Attach to any XAUUSD chart (M5 aanbevolen).      |
+//|  2) Enable AutoTrading. 3) Account Navigator > right-click       |
+//|  account > Migrate > Migrate All. 4) Check VPS Journal for       |
+//|  "[VPS] ... OK" heartbeat each hour.                             |
 //+------------------------------------------------------------------+
 #property copyright "BUILD4POWER"
 #property link      "https://www.mql5.com/"
@@ -21,7 +22,7 @@ CTrade trade;
 //| Input parameters                                                 |
 //+------------------------------------------------------------------+
 input string           TradeSymbol      = "XAUUSD";        // Trading symbol
-input ENUM_TIMEFRAMES  EntryTF          = PERIOD_M15;      // Entry timeframe
+input ENUM_TIMEFRAMES  EntryTF          = PERIOD_M5;       // Entry timeframe
 input ENUM_TIMEFRAMES  TrendTF          = PERIOD_H1;       // Trend filter timeframe
 
 //--- risk management
@@ -46,6 +47,17 @@ input bool             UseWebLog        = false;           // Send logs to web d
 input string           WebLogUrl        = "https://api.aitrading.software/api/log";  // Log API URL
 input string           WebLogSecret    = "";              // Optional: same as LOG_API_KEY on Vercel
 
+//--- test (één keer een BUY plaatsen om order/TP/SL te testen)
+input bool             PlaceTestTrade   = false;           // Place one test BUY (zet daarna weer op false)
+
+//--- web instellingen (haal op van api.aitrading.software)
+input bool             UseWebSettings   = false;           // Instellingen van website gebruiken
+input string           WebSettingsUrl   = "https://api.aitrading.software/api/settings";  // Settings API
+
+//--- command center: heartbeat (VPS/account/positions naar dashboard)
+input bool             UseWebHeartbeat  = false;           // Stuur account + posities naar command center
+input string           WebHeartbeatUrl  = "https://api.aitrading.software/api/heartbeat";  // Heartbeat API
+
 //+------------------------------------------------------------------+
 //| Global variables / handles                                       |
 //+------------------------------------------------------------------+
@@ -55,6 +67,18 @@ int      maHandleTrend    = INVALID_HANDLE;
 
 datetime lastEntryBarTime = 0;   // To ensure once-per-bar logic on EntryTF
 datetime lastHeartbeat    = 0;   // For VPS status log
+bool     testTradePlaced  = false;  // één test-BUY per sessie
+
+// Web settings (opgehaald van API)
+double   g_riskPercent      = 2.0;
+double   g_minConfidence    = 70.0;
+bool     g_placeTestTrade   = false;
+bool     g_useTrailingStop  = true;
+double   g_atrSLFactor      = 2.5;
+double   g_baseRR           = 2.0;
+bool     g_tradingEnabled   = true;   // AI trading AAN/UIT (vanaf command center)
+bool     g_webSettingsLoaded = false;
+int      g_barsSinceSettingsFetch = 0;
 
 //+------------------------------------------------------------------+
 //| Forward declarations                                             |
@@ -84,6 +108,10 @@ double   CalculateLotSizeByRisk(const string symbol,
                                 const double  riskPercent,
                                 const double  stopLossPrice);
 void     WebLog(const string message, const string level = "info");
+bool     FetchWebSettings();
+void     SendHeartbeat();
+double   ParseJsonDouble(const string json, const string key);
+bool     ParseJsonBool(const string json, const string key);
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -137,9 +165,27 @@ void OnTick()
    if(!IsNewBar(TradeSymbol, EntryTF, lastEntryBarTime))
      {
       // Still manage trailing stop on every tick
-      if(UseTrailingStop)
+      if(UseWebSettings && g_webSettingsLoaded ? g_useTrailingStop : UseTrailingStop)
          ManageTrailingStop(TradeSymbol);
       return;
+     }
+
+   // Web settings ophalen (elke 5 bars of eerste bar)
+   if(UseWebSettings)
+     {
+      g_barsSinceSettingsFetch++;
+      if(g_barsSinceSettingsFetch >= 5 || !g_webSettingsLoaded)
+        {
+         FetchWebSettings();
+         g_barsSinceSettingsFetch = 0;
+        }
+     }
+
+   // Command center: stuur account + posities (zelfde ritme als settings)
+   if(UseWebHeartbeat && StringLen(WebHeartbeatUrl) >= 10)
+     {
+      if(g_barsSinceSettingsFetch == 0 || !UseWebSettings)
+         SendHeartbeat();
      }
 
    // VPS heartbeat: log once per hour so you see EA is running
@@ -171,8 +217,22 @@ void OnTick()
    // Only one position at a time on this symbol
    if(HasOpenPosition(TradeSymbol))
      {
-      if(UseTrailingStop)
+      if(UseWebSettings && g_webSettingsLoaded ? g_useTrailingStop : UseTrailingStop)
          ManageTrailingStop(TradeSymbol);
+      return;
+     }
+
+   // Command center: AI trading UIT = geen nieuwe trades openen
+   if(UseWebSettings && g_webSettingsLoaded && !g_tradingEnabled)
+      return;
+
+   bool effPlaceTestTrade = (UseWebSettings && g_webSettingsLoaded) ? g_placeTestTrade : PlaceTestTrade;
+   if(effPlaceTestTrade && !testTradePlaced)
+     {
+      Print("XAUUSD_AI_EA: Placing test BUY (0.5% risk). Zet PlaceTestTrade daarna op false.");
+      WebLog("Placing test BUY to verify order execution.");
+      if(OpenPosition(ORDER_TYPE_BUY, 0.5, 100.0))
+         testTradePlaced = true;
       return;
      }
 
@@ -205,18 +265,19 @@ void OnTick()
    if(signalDir == 0)
       return;
 
-   // Confidence filter
-   if(confidence < MinConfidence)
+   double effMinConfidence = (UseWebSettings && g_webSettingsLoaded) ? g_minConfidence : MinConfidence;
+   if(confidence < effMinConfidence)
      {
-      string confMsg = StringFormat("Confidence %.2f below MinConfidence %.2f, no trade.", confidence, MinConfidence);
+      string confMsg = StringFormat("Confidence %.2f below MinConfidence %.2f, no trade.", confidence, effMinConfidence);
       Print(confMsg);
       WebLog(confMsg);
       return;
      }
 
    ENUM_ORDER_TYPE orderType = (signalDir > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
+   double effRiskPercent = (UseWebSettings && g_webSettingsLoaded) ? g_riskPercent : RiskPercent;
 
-   if(!OpenPosition(orderType, RiskPercent, confidence))
+   if(!OpenPosition(orderType, effRiskPercent, confidence))
      {
       Print("Failed to open position.");
       WebLog("Failed to open position.", "error");
@@ -499,6 +560,8 @@ bool OpenPosition(const ENUM_ORDER_TYPE orderType,
                   const double           confidence)
   {
    string symbol = TradeSymbol;
+   double effAtr = (UseWebSettings && g_webSettingsLoaded) ? g_atrSLFactor : AtrSLFactor;
+   double effRR  = (UseWebSettings && g_webSettingsLoaded) ? g_baseRR : BaseRR;
 
    double bid   = SymbolInfoDouble(symbol, SYMBOL_BID);
    double ask   = SymbolInfoDouble(symbol, SYMBOL_ASK);
@@ -511,7 +574,7 @@ bool OpenPosition(const ENUM_ORDER_TYPE orderType,
    int    atrPeriod  = 14;
    double atr        = GetAtr(symbol, EntryTF, atrPeriod);
    double atrPoints  = atr / point;
-   double slDistancePoints = atrPoints * AtrSLFactor;
+   double slDistancePoints = atrPoints * effAtr;
 
    if(slDistancePoints <= 0.0)
       return(false);
@@ -538,7 +601,7 @@ bool OpenPosition(const ENUM_ORDER_TYPE orderType,
      }
 
    // TP based on BaseRR
-   double tpDistancePoints = slDistancePoints * BaseRR;
+   double tpDistancePoints = slDistancePoints * effRR;
    if(orderType == ORDER_TYPE_BUY)
       tpPrice = entryPrice + tpDistancePoints * point;
    else
@@ -565,7 +628,7 @@ bool OpenPosition(const ENUM_ORDER_TYPE orderType,
 
    string openMsg = StringFormat("Opened %s %.2f lots at %.3f, SL=%.3f, TP=%.3f, RR=%.2f, confidence=%.2f",
                                 orderType == ORDER_TYPE_BUY ? "BUY" : "SELL",
-                                lot, entryPrice, slPrice, tpPrice, BaseRR, confidence);
+                                lot, entryPrice, slPrice, tpPrice, effRR, confidence);
    Print(openMsg);
    WebLog(openMsg);
    return(true);
@@ -645,6 +708,177 @@ void ManageTrailingStop(const string symbol)
   }
 
 //+------------------------------------------------------------------+
+//| Parse a double value from JSON string (simple "key":value)       |
+//+------------------------------------------------------------------+
+double ParseJsonDouble(const string json, const string key)
+  {
+   string search = "\"" + key + "\":";
+   int pos = StringFind(json, search);
+   if(pos < 0)
+      return(0.0);
+   int start = pos + StringLen(search);
+   int end   = start;
+   int len   = StringLen(json);
+   while(end < len)
+     {
+      ushort c = (ushort)StringGetCharacter(json, end);
+      if(c == '.' || c == '-' || (c >= '0' && c <= '9'))
+         end++;
+      else
+         break;
+     }
+   if(end <= start)
+      return(0.0);
+   return((double)StringToDouble(StringSubstr(json, start, end - start)));
+  }
+
+//+------------------------------------------------------------------+
+//| Parse a bool from JSON ("key":true/false)                        |
+//+------------------------------------------------------------------+
+bool ParseJsonBool(const string json, const string key)
+  {
+   string search = "\"" + key + "\":";
+   int pos = StringFind(json, search);
+   if(pos < 0)
+      return(false);
+   int start = pos + StringLen(search);
+   if(StringFind(json, "true", start) == start)
+      return(true);
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Fetch settings from web API (GET)                                |
+//+------------------------------------------------------------------+
+bool FetchWebSettings()
+  {
+   if(StringLen(WebSettingsUrl) < 10)
+      return(false);
+
+   uchar data[];
+   ArrayResize(data, 0);
+   uchar result[];
+   string resultHeaders;
+   string headers = "";
+   int timeout = 5000;
+
+   if(WebRequest("GET", WebSettingsUrl, headers, timeout, data, result, resultHeaders) == -1)
+      return(false);
+
+   int n = ArraySize(result);
+   if(n <= 0)
+      return(false);
+
+   string json = CharArrayToString(result, 0, n, CP_UTF8);
+
+   g_riskPercent     = ParseJsonDouble(json, "riskPercent");
+   if(g_riskPercent <= 0.0)
+      g_riskPercent = 2.0;
+   g_minConfidence   = ParseJsonDouble(json, "minConfidence");
+   if(g_minConfidence < 0.0)
+      g_minConfidence = 70.0;
+   g_atrSLFactor     = ParseJsonDouble(json, "atrSLFactor");
+   if(g_atrSLFactor <= 0.0)
+      g_atrSLFactor = 2.5;
+   g_baseRR          = ParseJsonDouble(json, "baseRR");
+   if(g_baseRR <= 0.0)
+      g_baseRR = 2.0;
+   g_placeTestTrade  = ParseJsonBool(json, "placeTestTrade");
+   g_useTrailingStop = ParseJsonBool(json, "useTrailingStop");
+   if(StringFind(json, "tradingEnabled") >= 0)
+      g_tradingEnabled = ParseJsonBool(json, "tradingEnabled");
+   else
+      g_tradingEnabled = true;
+
+   g_webSettingsLoaded = true;
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Escape string for JSON (backslash and double quote)               |
+//+------------------------------------------------------------------+
+string JsonEscape(const string s)
+  {
+   string out = s;
+   StringReplace(out, "\\", "\\\\");
+   StringReplace(out, "\"", "\\\"");
+   return(out);
+  }
+
+//+------------------------------------------------------------------+
+//| Send heartbeat to command center (account + open positions)       |
+//+------------------------------------------------------------------+
+void SendHeartbeat()
+  {
+   if(StringLen(WebHeartbeatUrl) < 10)
+      return;
+
+   long   accountId   = AccountInfoInteger(ACCOUNT_LOGIN);
+   string hostname    = JsonEscape(TerminalInfoString(TERMINAL_NAME));
+   string serverName  = JsonEscape(AccountInfoString(ACCOUNT_SERVER));
+   double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity     = AccountInfoDouble(ACCOUNT_EQUITY);
+   double margin     = AccountInfoDouble(ACCOUNT_MARGIN);
+   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+
+   string tradesJson = "";
+   double totalProfit = 0.0;
+   int count = PositionsTotal();
+   for(int i = count - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !PositionSelectByTicket(ticket))
+         continue;
+      string symRaw = (string)PositionGetString(POSITION_SYMBOL);
+      string sym    = JsonEscape(symRaw);
+      long   type   = PositionGetInteger(POSITION_TYPE);
+      double vol    = PositionGetDouble(POSITION_VOLUME);
+      double openP  = PositionGetDouble(POSITION_PRICE_OPEN);
+      double profit = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      double sl     = PositionGetDouble(POSITION_SL);
+      double tp     = PositionGetDouble(POSITION_TP);
+      double curP   = (type == POSITION_TYPE_BUY) ? SymbolInfoDouble(symRaw, SYMBOL_BID) : SymbolInfoDouble(symRaw, SYMBOL_ASK);
+      totalProfit  += profit;
+      if(StringLen(tradesJson) > 0)
+         tradesJson += ",";
+      tradesJson += "{\"symbol\":\"" + sym + "\",\"type\":" + IntegerToString((int)type) +
+                    ",\"volume\":" + DoubleToString(vol, 2) + ",\"openPrice\":" + DoubleToString(openP, 5) +
+                    ",\"currentPrice\":" + DoubleToString(curP, 5) + ",\"profit\":" + DoubleToString(profit, 2) +
+                    ",\"sl\":" + DoubleToString(sl, 5) + ",\"tp\":" + DoubleToString(tp, 5) +
+                    ",\"ticket\":" + IntegerToString((int)ticket) + "}";
+     }
+
+   string body = "{\"accountId\":" + IntegerToString((int)accountId) +
+                 ",\"hostname\":\"" + hostname + "\"" +
+                 ",\"serverName\":\"" + serverName + "\"" +
+                 ",\"balance\":" + DoubleToString(balance, 2) +
+                 ",\"equity\":" + DoubleToString(equity, 2) +
+                 ",\"margin\":" + DoubleToString(margin, 2) +
+                 ",\"freeMargin\":" + DoubleToString(freeMargin, 2) +
+                 ",\"floatingProfit\":" + DoubleToString(totalProfit, 2) +
+                 ",\"openTrades\":[" + tradesJson + "]}";
+
+   uchar data[];
+   int len = StringToCharArray(body, data, 0, StringLen(body), CP_UTF8);
+   if(len <= 0)
+      return;
+   if(data[len-1] == 0)
+      ArrayResize(data, len - 1);
+   else
+      ArrayResize(data, len);
+
+   string headers = "Content-Type: application/json\r\n";
+   if(StringLen(WebLogSecret) > 0)
+      headers += "X-API-Key: " + WebLogSecret + "\r\n";
+
+   uchar result[];
+   string resultHeaders;
+   int timeout = 5000;
+   if(WebRequest("POST", WebHeartbeatUrl, headers, timeout, data, result, resultHeaders) == -1)
+      return;
+  }
+
+//+------------------------------------------------------------------+
 //| Send log line to web API (api.aitrading.software)                |
 //+------------------------------------------------------------------+
 void WebLog(const string message, const string level = "info")
@@ -676,7 +910,10 @@ void WebLog(const string message, const string level = "info")
    if(StringLen(WebLogSecret) > 0)
       headers += "X-API-Key: " + WebLogSecret + "\r\n";
 
-   if(!WebRequest("POST", WebLogUrl, headers, data))
+   uchar result[];
+   string resultHeaders;
+   int timeout = 5000;
+   if(WebRequest("POST", WebLogUrl, headers, timeout, data, result, resultHeaders) == -1)
       return;  // silent fail: MT5 may block URL or network error
   }
 

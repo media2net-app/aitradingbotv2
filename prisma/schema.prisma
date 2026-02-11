@@ -16,3 +16,31 @@ model Log {
   message   String
 }
 
+model Setting {
+  id              Int      @id
+  riskPercent     Float    @default(2)
+  minConfidence   Float    @default(70)
+  placeTestTrade  Boolean  @default(false)
+  useTrailingStop Boolean  @default(true)
+  atrSLFactor     Float    @default(2.5)
+  baseRR          Float    @default(2)
+  tradingEnabled  Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
+
+model Connection {
+  id              Int      @id @default(autoincrement())
+  accountId      Int
+  hostname       String
+  serverName     String?
+  balance        Float
+  equity         Float
+  margin         Float
+  freeMargin     Float
+  openTradesCount Int     @default(0)
+  floatingProfit Float    @default(0)
+  openTrades     Json?
+  lastSeen       DateTime
+  @@unique([accountId, hostname])
+}
+

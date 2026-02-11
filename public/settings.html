@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instellingen EA – api.aitrading.software</title>
+  <style>
+    :root { --bg: #0f0f12; --card: #1a1a20; --text: #e4e4e7; --muted: #71717a; --green: #22c55e; --link: #3b82f6; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1rem; max-width: 480px; }
+    h1 { font-size: 1.25rem; margin: 0 0 0.5rem 0; }
+    .sub { color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .nav { margin-bottom: 1rem; font-size: 0.875rem; }
+    .form { background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; padding: 1rem; }
+    .row { margin-bottom: 0.75rem; }
+    .row label { display: block; font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.25rem; }
+    .row input[type="number"] { width: 100%; background: #25252b; color: var(--text); border: 1px solid #3a3a42; border-radius: 4px; padding: 0.4rem; }
+    .row input[type="checkbox"] { margin-right: 0.5rem; }
+    .btn { background: var(--green); color: #000; border: none; border-radius: 4px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; margin-top: 0.5rem; }
+    .btn:hover { opacity: 0.9; }
+    .msg { font-size: 0.875rem; margin-top: 0.5rem; }
+    .msg.ok { color: var(--green); }
+    .msg.err { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <div class="nav"><a href="/">← Command center</a> &nbsp;|&nbsp; <a href="/settings">Instellingen</a></div>
+  <h1>Instellingen EA</h1>
+  <p class="sub">Deze waarden worden door de EA opgehaald als je <strong>UseWebSettings = true</strong> hebt. Sla op en wacht tot de EA ze ophaalt (elke nieuwe M5-bar of na ~1 min).</p>
+
+  <div class="form">
+    <div class="row">
+      <label><input type="checkbox" id="tradingEnabled" checked /> AI trading AAN (zet uit om geen nieuwe trades te openen)</label>
+    </div>
+    <div class="row">
+      <label>Risico per trade (%)</label>
+      <input type="number" id="riskPercent" min="0.1" max="10" step="0.1" value="2" />
+    </div>
+    <div class="row">
+      <label>Min. confidence (0–100)</label>
+      <input type="number" id="minConfidence" min="0" max="100" step="1" value="70" />
+    </div>
+    <div class="row">
+      <label>ATR SL-factor</label>
+      <input type="number" id="atrSLFactor" min="1" max="5" step="0.1" value="2.5" />
+    </div>
+    <div class="row">
+      <label>Base Risk:Reward (TP)</label>
+      <input type="number" id="baseRR" min="0.5" max="5" step="0.1" value="2" />
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="useTrailingStop" checked /> Trailing stop aan</label>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="placeTestTrade" /> Test-trade (één BUY) plaatsen</label>
+    </div>
+    <button class="btn" id="saveBtn">Opslaan</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <script>
+    const riskPercent = document.getElementById('riskPercent');
+    const minConfidence = document.getElementById('minConfidence');
+    const atrSLFactor = document.getElementById('atrSLFactor');
+    const baseRR = document.getElementById('baseRR');
+    const useTrailingStop = document.getElementById('useTrailingStop');
+    const placeTestTrade = document.getElementById('placeTestTrade');
+    const tradingEnabled = document.getElementById('tradingEnabled');
+    const saveBtn = document.getElementById('saveBtn');
+    const msg = document.getElementById('msg');
+
+    async function load() {
+      try {
+        const r = await fetch('/api/settings');
+        const s = await r.json();
+        tradingEnabled.checked = s.tradingEnabled !== false;
+        riskPercent.value = s.riskPercent ?? 2;
+        minConfidence.value = s.minConfidence ?? 70;
+        atrSLFactor.value = s.atrSLFactor ?? 2.5;
+        baseRR.value = s.baseRR ?? 2;
+        useTrailingStop.checked = s.useTrailingStop !== false;
+        placeTestTrade.checked = Boolean(s.placeTestTrade);
+      } catch (e) {
+        msg.textContent = 'Kon instellingen niet laden.';
+        msg.className = 'msg err';
+      }
+    }
+
+    saveBtn.addEventListener('click', async () => {
+      msg.textContent = '';
+      saveBtn.disabled = true;
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tradingEnabled: tradingEnabled.checked,
+            riskPercent: parseFloat(riskPercent.value) || 2,
+            minConfidence: parseFloat(minConfidence.value) || 70,
+            atrSLFactor: parseFloat(atrSLFactor.value) || 2.5,
+            baseRR: parseFloat(baseRR.value) || 2,
+            useTrailingStop: useTrailingStop.checked,
+            placeTestTrade: placeTestTrade.checked,
+          }),
+        });
+        const data = await r.json();
+        if (data.ok || data.riskPercent !== undefined) {
+          msg.textContent = 'Opgeslagen. EA haalt dit op bij volgende update.';
+          msg.className = 'msg ok';
+        } else {
+          msg.textContent = data.error || 'Fout bij opslaan';
+          msg.className = 'msg err';
+        }
+      } catch (e) {
+        msg.textContent = 'Fout: ' + e.message;
+        msg.className = 'msg err';
+      }
+      saveBtn.disabled = false;
+    });
+
+    load();
+  </script>
+</body>
+</html>
