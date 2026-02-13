@@ -64,6 +64,14 @@
     .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
     .status.empty .dot { background: var(--muted); }
     @keyframes pulse { 50% { opacity: 0.6; } }
+    .account-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; margin-bottom: 0.5rem; }
+    .account-status-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .account-status-dot.connected { background: var(--green); animation: pulse 2s infinite; }
+    .account-status-dot.disconnected { background: var(--red); }
+    .account-info { flex: 1; }
+    .account-name { font-weight: 600; font-size: 0.9375rem; }
+    .account-details { font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; }
+    .account-meta { font-size: 0.75rem; color: var(--muted); }
     .log-box { background: var(--card); border-radius: 8px; border: 1px solid #2a2a30; overflow: hidden; margin-top: 1rem; }
     .log-toolbar { padding: 0.5rem 0.75rem; border-bottom: 1px solid #2a2a30; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
     .log-toolbar label { font-size: 0.8125rem; color: var(--muted); }
@@ -96,7 +104,7 @@
 
   <h2>Verbonden VPS / accounts</h2>
   <div id="connectionsContainer" class="connections">
-    <div class="no-conn">Geen verbindingen. Zet in de EA <strong>UseWebHeartbeat = true</strong> en zorg dat de EA draait.</div>
+    <div class="no-conn">Laden…</div>
   </div>
 
   <div class="debug-box" id="debugBox">
@@ -205,37 +213,89 @@
       setTradingEnabled(!tradingEnabled);
     });
 
+    // Hardcoded accounts (zoals in bijlage)
+    const KNOWN_ACCOUNTS = [
+      { accountId: 102199055, name: 'Chiel Van der Zee', vps: 'VPS Amsterdam 10', vpsId: '6785641' },
+      { accountId: 102965956, name: 'Im Hortulanus', vps: 'VPS Amsterdam 01', vpsId: '6786392' },
+      { accountId: 102815130, name: 'Michael Eelman', vps: 'VPS Amsterdam 10', vpsId: '6786396' }
+    ];
+
     function renderConnections(connections) {
-      if (!connections || connections.length === 0) {
-        connectionsContainer.innerHTML = '<div class="no-conn">Geen verbindingen. Zet in de EA <strong>UseWebHeartbeat = true</strong> en zorg dat de EA draait.</div>';
-        return;
+      const connectionsMap = new Map();
+      if (connections && connections.length > 0) {
+        connections.forEach(c => {
+          connectionsMap.set(c.accountId, c);
+        });
       }
-      connectionsContainer.innerHTML = connections.map((c) => {
-        const trades = Array.isArray(c.openTrades) ? c.openTrades : [];
-        const profitClass = (c.floatingProfit || 0) >= 0 ? 'profit' : 'loss';
-        const rows = trades.length
-          ? '<table><thead><tr><th>Symbol</th><th>Type</th><th>Volume</th><th>Open</th><th>Huidig</th><th>P/L</th><th>SL</th><th>TP</th></tr></thead><tbody>' +
-            trades.map((t) => '<tr><td>' + escapeHtml(t.symbol || '') + '</td><td>' + (t.type === 0 ? 'BUY' : 'SELL') + '</td><td>' + (t.volume ?? '') + '</td><td>' + (t.openPrice ?? '') + '</td><td>' + (t.currentPrice ?? '') + '</td><td class="' + ((t.profit || 0) >= 0 ? 'profit' : 'loss') + '">' + (t.profit ?? '') + '</td><td>' + (t.sl ?? '') + '</td><td>' + (t.tp ?? '') + '</td></tr>').join('') + '</tbody></table>'
-          : '<p class="empty">Geen open posities</p>';
+
+      // Render alle bekende accounts met status
+      connectionsContainer.innerHTML = KNOWN_ACCOUNTS.map(account => {
+        const conn = connectionsMap.get(account.accountId);
+        const isConnected = conn && isRecentlySeen(conn.lastSeen);
+        const statusClass = isConnected ? 'connected' : 'disconnected';
+        const statusText = isConnected ? 'Verbonden' : 'Niet verbonden';
+        const lastSeenText = conn ? formatAgo(conn.lastSeen) : 'Nooit';
+        
+        let accountDetails = account.name + ' · Account ' + account.accountId;
+        if (conn) {
+          accountDetails += '<br><span class="account-meta">' + account.vps + ' · ' + account.vpsId;
+          if (conn.serverName) accountDetails += ' · ' + escapeHtml(conn.serverName);
+          accountDetails += '</span>';
+        } else {
+          accountDetails += '<br><span class="account-meta">' + account.vps + ' · ' + account.vpsId + '</span>';
+        }
+
+        let detailsHtml = '';
+        if (conn && isConnected) {
+          const trades = Array.isArray(conn.openTrades) ? conn.openTrades : [];
+          const profitClass = (conn.floatingProfit || 0) >= 0 ? 'profit' : 'loss';
+          const rows = trades.length
+            ? '<table><thead><tr><th>Symbol</th><th>Type</th><th>Volume</th><th>Open</th><th>Huidig</th><th>P/L</th><th>SL</th><th>TP</th></tr></thead><tbody>' +
+              trades.map((t) => '<tr><td>' + escapeHtml(t.symbol || '') + '</td><td>' + (t.type === 0 ? 'BUY' : 'SELL') + '</td><td>' + (t.volume ?? '') + '</td><td>' + (t.openPrice ?? '') + '</td><td>' + (t.currentPrice ?? '') + '</td><td class="' + ((t.profit || 0) >= 0 ? 'profit' : 'loss') + '">' + (t.profit ?? '') + '</td><td>' + (t.sl ?? '') + '</td><td>' + (t.tp ?? '') + '</td></tr>').join('') + '</tbody></table>'
+            : '<p class="empty">Geen open posities</p>';
+          
+          detailsHtml = 
+            '<div class="conn-grid" style="margin-top: 0.75rem;">' +
+            '<div class="conn-kv"><span class="k">Balance</span><br><span class="v">' + (conn.balance != null ? Number(conn.balance).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+            '<div class="conn-kv"><span class="k">Equity</span><br><span class="v">' + (conn.equity != null ? Number(conn.equity).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+            '<div class="conn-kv"><span class="k">Margin</span><br><span class="v">' + (conn.margin != null ? Number(conn.margin).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+            '<div class="conn-kv"><span class="k">Vrije marge</span><br><span class="v">' + (conn.freeMargin != null ? Number(conn.freeMargin).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+            '<div class="conn-kv"><span class="k">Open posities</span><br><span class="v">' + (conn.openTradesCount ?? 0) + '</span></div>' +
+            '<div class="conn-kv"><span class="k">Floating P/L</span><br><span class="v ' + profitClass + '">' + (conn.floatingProfit != null ? Number(conn.floatingProfit).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
+            '</div>' +
+            '<div class="conn-trades">' + rows + '</div>';
+        }
+
         return (
           '<div class="conn-card">' +
           '<div class="conn-head">' +
-          '<span class="conn-name">' + escapeHtml(c.hostname || 'VPS') + ' · Account ' + escapeHtml(String(c.accountId)) + '</span>' +
-          '<span class="conn-meta">Laatst gezien: ' + formatAgo(c.lastSeen) + (c.serverName ? ' · ' + escapeHtml(c.serverName) : '') + '</span>' +
+          '<div style="display: flex; align-items: center; gap: 0.75rem; flex: 1;">' +
+          '<span class="account-status-dot ' + statusClass + '" title="' + statusText + '"></span>' +
+          '<div class="account-info">' +
+          '<div class="account-name">' + escapeHtml(account.name) + '</div>' +
+          '<div class="account-details">' + accountDetails + '</div>' +
           '</div>' +
-          '<div class="conn-grid">' +
-          '<div class="conn-kv"><span class="k">Balance</span><br><span class="v">' + (c.balance != null ? Number(c.balance).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
-          '<div class="conn-kv"><span class="k">Equity</span><br><span class="v">' + (c.equity != null ? Number(c.equity).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
-          '<div class="conn-kv"><span class="k">Margin</span><br><span class="v">' + (c.margin != null ? Number(c.margin).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
-          '<div class="conn-kv"><span class="k">Vrije marge</span><br><span class="v">' + (c.freeMargin != null ? Number(c.freeMargin).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
-          '<div class="conn-kv"><span class="k">Open posities</span><br><span class="v">' + (c.openTradesCount ?? 0) + '</span></div>' +
-          '<div class="conn-kv"><span class="k">Floating P/L</span><br><span class="v ' + profitClass + '">' + (c.floatingProfit != null ? Number(c.floatingProfit).toLocaleString('nl-NL', { minimumFractionDigits: 2 }) : '–') + '</span></div>' +
           '</div>' +
-          '<div class="conn-trades">' + rows + '</div>' +
+          '<span class="conn-meta">' + statusText + ' · ' + lastSeenText + '</span>' +
+          '</div>' +
+          (detailsHtml ? detailsHtml : '') +
           '</div>'
         );
       }).join('');
+
+      if (KNOWN_ACCOUNTS.length === 0) {
+        connectionsContainer.innerHTML = '<div class="no-conn">Geen verbindingen. Zet in de EA <strong>UseWebHeartbeat = true</strong> en zorg dat de EA draait.</div>';
+      }
     }
+
+    function isRecentlySeen(lastSeen) {
+      if (!lastSeen) return false;
+      const d = new Date(lastSeen);
+      if (isNaN(d.getTime())) return false;
+      const minAgo = (Date.now() - d.getTime()) / 60000;
+      return minAgo <= 5; // Connected if seen within last 5 minutes
+    }
+
 
     async function fetchConnections() {
       try {

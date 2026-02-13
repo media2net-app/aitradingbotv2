@@ -20,3 +20,4 @@ Thumbs.db
 
 # MQL5 compiled
 *.ex5
+.env*.local
