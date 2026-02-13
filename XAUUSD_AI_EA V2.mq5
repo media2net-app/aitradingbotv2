@@ -1,7 +1,15 @@
 //+------------------------------------------------------------------+
-//|                                                  XAUUSD_AI_EA.mq5|
-//|       Simple XAUUSD AI-style trading EA skeleton                 |
-//|       Uses indicator logic + confidence score, AI-ready stub     |
+//|                                              XAUUSD_AI_EA V2.mq5|
+//|       Advanced XAUUSD AI trading EA with news & volatility filters|
+//|       Uses multi-timeframe analysis, news API, volatility filters |
+//|                                                                  |
+//|  V2 Features:                                                     |
+//|  - News API integration (blocks trades during high-impact events)|
+//|  - ATR volatility filter (compares to historical average)       |
+//|  - Time-based blocking (USD news windows)                        |
+//|  - D1 macro trend filter (200 EMA)                               |
+//|  - Week range analysis                                           |
+//|  - Multiple TP levels (TP1, TP2, TP3)                           |
 //|                                                                  |
 //|  VPS (MQL5): 1) Attach to any XAUUSD chart (M5 aanbevolen).      |
 //|  2) Enable AutoTrading. 3) Account Navigator > right-click       |
@@ -10,7 +18,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Trading by Chiel"
 #property link      "https://www.mql5.com/"
-#property version   "1.2"
+#property version   "2.0"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -67,6 +75,32 @@ input string           WebSettingsUrl   = "https://api.aitrading.software/api/se
 input bool             UseWebHeartbeat  = true;            // Stuur account + posities naar command center
 input string           WebHeartbeatUrl  = "https://api.aitrading.software/api/heartbeat";  // Heartbeat API
 
+//--- News & Volatility Protection (V2 features)
+input bool             UseNewsFilter    = true;            // Enable news filtering (block trades during news)
+input string           NewsApiUrl       = "https://api.aitrading.software/api/news";  // News API URL (returns upcoming high-impact USD events)
+input int              NewsBlockMinutes = 60;              // Block trades X minutes before/after news
+input bool             UseTimeBlock     = true;            // Block trades during known USD news times (14:30-15:30 CET)
+input int              BlockStartHour   = 14;               // Start blocking at this hour (CET)
+input int              BlockStartMin    = 30;              // Start blocking at this minute
+input int              BlockEndHour     = 15;              // End blocking at this hour (CET)
+input int              BlockEndMin      = 30;              // End blocking at this minute
+input bool             BlockNFPFriday   = true;            // Block first Friday of month (NFP day)
+
+//--- Volatility filters
+input bool             UseAtrVolatilityFilter = true;      // Block trades if ATR > X times average
+input double           AtrVolatilityMultiplier = 2.0;      // Block if current ATR > average * this multiplier
+input int              AtrHistoryDays    = 7;              // Days to calculate ATR average
+input bool             UseSpreadRatioFilter = true;        // Block if spread > X times normal
+input double           SpreadRatioMultiplier = 1.5;         // Block if spread > normal * this multiplier
+input double           NormalSpreadPoints = 150.0;          // Normal spread for XAUUSD (points)
+
+//--- Multi-timeframe analysis (V2 features)
+input bool             UseD1TrendFilter = true;            // Use D1 200 EMA as macro trend filter
+input int              D1MaPeriod       = 200;             // D1 MA period for macro trend
+input bool             UseWeekRange     = true;            // Analyze position within weekly range
+input double           WeekRangeMinPercent = 20.0;         // Min % from week low to allow BUY
+input double           WeekRangeMaxPercent = 80.0;         // Max % from week low to allow BUY
+
 //+------------------------------------------------------------------+
 //| Global variables / handles                                       |
 //+------------------------------------------------------------------+
@@ -98,6 +132,14 @@ double   g_baseRR           = 2.0;
 bool     g_tradingEnabled   = true;   // AI trading AAN/UIT (vanaf command center)
 bool     g_webSettingsLoaded = false;
 int      g_barsSinceSettingsFetch = 0;
+
+// News & Volatility tracking (V2)
+datetime g_lastNewsCheck    = 0;      // Last time we checked for news
+bool     g_newsBlockActive  = false;  // Is news blocking currently active?
+string   g_nextNewsEvent    = "";     // Description of next news event
+datetime g_nextNewsTime     = 0;      // Time of next news event
+double   g_atrAverage       = 0.0;    // Average ATR over last N days
+double   g_normalSpread     = 150.0;  // Normal spread (calculated or set)
 
 //+------------------------------------------------------------------+
 //| Forward declarations                                             |
@@ -135,6 +177,17 @@ void     SendHeartbeat();
 double   ParseJsonDouble(const string json, const string key);
 bool     ParseJsonBool(const string json, const string key);
 
+// V2: News & Volatility filters
+bool     CheckNewsBlock();
+bool     FetchNewsEvents();
+bool     IsTimeBlocked();
+bool     IsNFPFriday();
+bool     CheckAtrVolatility();
+bool     CheckSpreadRatio();
+void     UpdateAtrAverage();
+double   GetWeekRangePercent(const string symbol);
+int      GetD1TrendDirection(const string symbol);
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -156,8 +209,20 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   string initMsg = "XAUUSD_AI_EA initialized. Symbol=" + TradeSymbol +
-                    " EntryTF=" + EnumToString(EntryTF) + " TrendTF=" + EnumToString(TrendTF);
+   // V2: Initialize normal spread
+   g_normalSpread = NormalSpreadPoints;
+   if(g_normalSpread <= 0.0)
+      g_normalSpread = 150.0; // Default for XAUUSD
+   
+   // V2: Initialize ATR average
+   if(UseAtrVolatilityFilter)
+      UpdateAtrAverage();
+   
+   string initMsg = "XAUUSD_AI_EA V2 initialized. Symbol=" + TradeSymbol +
+                    " EntryTF=" + EnumToString(EntryTF) + " TrendTF=" + EnumToString(TrendTF) +
+                    " | NewsFilter=" + (UseNewsFilter ? "ON" : "OFF") +
+                    " | AtrFilter=" + (UseAtrVolatilityFilter ? "ON" : "OFF") +
+                    " | D1Trend=" + (UseD1TrendFilter ? "ON" : "OFF");
    Print(initMsg);
    WebLog(initMsg);
    return(INIT_SUCCEEDED);
@@ -260,6 +325,68 @@ void OnTick()
       if(OpenPosition(ORDER_TYPE_BUY, 0.5, 100.0))
          testTradePlaced = true;
       return;
+     }
+
+   // V2: Update ATR average (once per bar)
+   if(UseAtrVolatilityFilter)
+      UpdateAtrAverage();
+
+   // V2: News filter check
+   if(UseNewsFilter)
+     {
+      if(CheckNewsBlock())
+        {
+         string newsMsg = "Trade blocked: News event detected. " + g_nextNewsEvent;
+         Print(newsMsg);
+         WebLog(newsMsg, "warn");
+         return;
+        }
+     }
+
+   // V2: Time-based blocking (USD news times)
+   if(UseTimeBlock)
+     {
+      if(IsTimeBlocked())
+        {
+         string timeMsg = "Trade blocked: USD news time window (14:30-15:30 CET)";
+         Print(timeMsg);
+         WebLog(timeMsg, "warn");
+         return;
+        }
+      if(BlockNFPFriday && IsNFPFriday())
+        {
+         string nfpMsg = "Trade blocked: NFP Friday (first Friday of month)";
+         Print(nfpMsg);
+         WebLog(nfpMsg, "warn");
+         return;
+        }
+     }
+
+   // V2: ATR Volatility filter
+   if(UseAtrVolatilityFilter)
+     {
+      if(!CheckAtrVolatility())
+        {
+         string atrMsg = StringFormat("Trade blocked: ATR volatility too high (%.2f > %.2f * %.2f)",
+                                      GetAtr(TradeSymbol, EntryTF, 14), g_atrAverage, AtrVolatilityMultiplier);
+         Print(atrMsg);
+         WebLog(atrMsg, "warn");
+         return;
+        }
+     }
+
+   // V2: Spread ratio filter
+   if(UseSpreadRatioFilter)
+     {
+      if(!CheckSpreadRatio())
+        {
+         double currentSpread = (double)SymbolInfoInteger(TradeSymbol, SYMBOL_SPREAD);
+         string spreadMsg = StringFormat("Trade blocked: Spread ratio too high (%.0f > %.0f * %.2f)",
+                                        currentSpread, NormalSpreadPoints, SpreadRatioMultiplier);
+         Print(spreadMsg);
+         WebLog(spreadMsg, "warn");
+         return;
+        }
      }
 
    // Calculate signal + confidence
@@ -428,6 +555,19 @@ int CalculateSignalDirection(double &confidence)
   {
    confidence = 0.0;
 
+   // V2: D1 Macro Trend Filter (200 EMA)
+   int d1Trend = 0;
+   if(UseD1TrendFilter)
+     {
+      d1Trend = GetD1TrendDirection(TradeSymbol);
+      if(d1Trend == 0)
+         return(0); // No clear D1 trend, no trade
+      if(d1Trend > 0)
+         confidence += 20.0; // D1 uptrend bonus
+      else
+         confidence += 20.0; // D1 downtrend bonus
+     }
+
    // Trend via MA slope on TrendTF
    int    maPeriod = 50;
    double maCurrent, maPrev;
@@ -449,6 +589,13 @@ int CalculateSignalDirection(double &confidence)
       trendDir = 1;
    else if(maCurrent < maPrev)
       trendDir = -1;
+
+   // V2: H1 trend must align with D1 trend
+   if(UseD1TrendFilter && d1Trend != 0 && trendDir != d1Trend)
+     {
+      // Trend conflict: H1 and D1 don't align
+      confidence -= 30.0; // Penalty for trend conflict
+     }
 
    if(trendDir != 0)
       confidence += 30.0; // base trend score
@@ -473,6 +620,39 @@ int CalculateSignalDirection(double &confidence)
       confidence += 25.0;
      }
 
+   // V2: Week Range Filter
+   if(UseWeekRange && signalDir != 0)
+     {
+      double weekRangePercent = GetWeekRangePercent(TradeSymbol);
+      if(signalDir > 0) // BUY signal
+        {
+         if(weekRangePercent < WeekRangeMinPercent || weekRangePercent > WeekRangeMaxPercent)
+           {
+            // Price too low or too high in weekly range for BUY
+            confidence -= 15.0;
+           }
+         else
+           {
+            confidence += 10.0; // Good position in weekly range
+           }
+        }
+      else // SELL signal
+        {
+         if(weekRangePercent < WeekRangeMinPercent || weekRangePercent > WeekRangeMaxPercent)
+           {
+            // For SELL, we want price near top of range
+            if(weekRangePercent > (100.0 - WeekRangeMinPercent))
+              {
+               confidence += 10.0; // Good position for SELL
+              }
+            else
+              {
+               confidence -= 15.0;
+              }
+           }
+        }
+     }
+
    // Volatility (ATR) check
    int    atrPeriod = 14;
    double atr       = GetAtr(TradeSymbol, EntryTF, atrPeriod);
@@ -484,6 +664,8 @@ int CalculateSignalDirection(double &confidence)
    // Normalize / cap confidence
    if(confidence > 100.0)
       confidence = 100.0;
+   if(confidence < 0.0)
+      confidence = 0.0;
 
    // If no clear trend or RSI condition, no signal
    if(signalDir == 0)
@@ -1166,6 +1348,255 @@ void WebLog(const string message, const string level = "info")
    int timeout = 5000;
    if(WebRequest("POST", WebLogUrl, headers, timeout, data, result, resultHeaders) == -1)
       return;  // silent fail: MT5 may block URL or network error
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Check if news blocking is active                            |
+//+------------------------------------------------------------------+
+bool CheckNewsBlock()
+  {
+   datetime now = TimeCurrent();
+   
+   // Check news API every 5 minutes
+   if(now - g_lastNewsCheck >= 300)
+     {
+      g_lastNewsCheck = now;
+      FetchNewsEvents();
+     }
+   
+   // Check if we're in news block window
+   if(g_newsBlockActive && g_nextNewsTime > 0)
+     {
+      datetime blockStart = g_nextNewsTime - (NewsBlockMinutes * 60);
+      datetime blockEnd   = g_nextNewsTime + (NewsBlockMinutes * 60);
+      
+      if(now >= blockStart && now <= blockEnd)
+         return(true);
+     }
+   
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Fetch news events from API                                  |
+//+------------------------------------------------------------------+
+bool FetchNewsEvents()
+  {
+   if(StringLen(NewsApiUrl) < 10)
+      return(false);
+   
+   uchar data[];
+   ArrayResize(data, 0);
+   uchar result[];
+   string resultHeaders;
+   string headers = "";
+   if(StringLen(WebLogSecret) > 0)
+      headers = "X-API-Key: " + WebLogSecret + "\r\n";
+   int timeout = 5000;
+   
+   if(WebRequest("GET", NewsApiUrl, headers, timeout, data, result, resultHeaders) == -1)
+      return(false);
+   
+   int n = ArraySize(result);
+   if(n <= 0)
+      return(false);
+   
+   string json = CharArrayToString(result, 0, n, CP_UTF8);
+   
+   // Parse JSON: {"hasNews":true,"nextEvent":"NFP","nextTime":1234567890}
+   bool hasNews = ParseJsonBool(json, "hasNews");
+   if(hasNews)
+     {
+      g_newsBlockActive = true;
+      g_nextNewsEvent = "High-impact USD news";
+      g_nextNewsTime = (datetime)ParseJsonDouble(json, "nextTime");
+     }
+   else
+     {
+      g_newsBlockActive = false;
+      g_nextNewsTime = 0;
+     }
+   
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Check if current time is in blocked window                  |
+//+------------------------------------------------------------------+
+bool IsTimeBlocked()
+  {
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   
+   int currentHour = dt.hour;
+   int currentMin  = dt.min;
+   
+   // Convert to CET (assuming server time is already CET or adjust)
+   int blockStartTotal = BlockStartHour * 60 + BlockStartMin;
+   int blockEndTotal   = BlockEndHour * 60 + BlockEndMin;
+   int currentTotal    = currentHour * 60 + currentMin;
+   
+   if(blockStartTotal <= blockEndTotal)
+     {
+      // Normal case: same day block
+      if(currentTotal >= blockStartTotal && currentTotal <= blockEndTotal)
+         return(true);
+     }
+   else
+     {
+      // Overnight block
+      if(currentTotal >= blockStartTotal || currentTotal <= blockEndTotal)
+         return(true);
+     }
+   
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Check if today is NFP Friday (first Friday of month)        |
+//+------------------------------------------------------------------+
+bool IsNFPFriday()
+  {
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   
+   // Check if it's Friday
+   if(dt.day_of_week != 5) // 5 = Friday
+      return(false);
+   
+   // Check if it's in first week of month (day 1-7)
+   if(dt.day >= 1 && dt.day <= 7)
+      return(true);
+   
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Check ATR volatility against historical average             |
+//+------------------------------------------------------------------+
+bool CheckAtrVolatility()
+  {
+   if(g_atrAverage <= 0.0)
+      return(true); // No data yet, allow trade
+   
+   double currentAtr = GetAtr(TradeSymbol, EntryTF, 14);
+   if(currentAtr <= 0.0)
+      return(true);
+   
+   double threshold = g_atrAverage * AtrVolatilityMultiplier;
+   if(currentAtr > threshold)
+      return(false); // Too volatile
+   
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Check spread ratio against normal                           |
+//+------------------------------------------------------------------+
+bool CheckSpreadRatio()
+  {
+   double currentSpread = (double)SymbolInfoInteger(TradeSymbol, SYMBOL_SPREAD);
+   double threshold = NormalSpreadPoints * SpreadRatioMultiplier;
+   
+   if(currentSpread > threshold)
+      return(false); // Spread too high
+   
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Update ATR average over last N days                         |
+//+------------------------------------------------------------------+
+void UpdateAtrAverage()
+  {
+   double totalAtr = 0.0;
+   int count = 0;
+   int barsNeeded = AtrHistoryDays * 24 * 12; // Assuming H1, adjust if needed
+   
+   double atrBuffer[];
+   int handle = iATR(TradeSymbol, PERIOD_H1, 14);
+   if(handle == INVALID_HANDLE)
+      return;
+   
+   if(ArraySetAsSeries(atrBuffer, true) && CopyBuffer(handle, 0, 0, barsNeeded, atrBuffer) > 0)
+     {
+      int size = ArraySize(atrBuffer);
+      for(int i = 0; i < size && i < barsNeeded; i++)
+        {
+         if(atrBuffer[i] > 0.0)
+           {
+            totalAtr += atrBuffer[i];
+            count++;
+           }
+        }
+     }
+   
+   IndicatorRelease(handle);
+   
+   if(count > 0)
+      g_atrAverage = totalAtr / count;
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Get week range percentage (0-100)                           |
+//+------------------------------------------------------------------+
+double GetWeekRangePercent(const string symbol)
+  {
+   double high[], low[];
+   datetime times[];
+   ArraySetAsSeries(high, true);
+   ArraySetAsSeries(low, true);
+   ArraySetAsSeries(times, true);
+   
+   // Get weekly high/low (last 7 days = ~1 week)
+   int bars = 7 * 24 * 12; // H1 bars for 7 days
+   if(CopyHigh(symbol, PERIOD_H1, 0, bars, high) <= 0 ||
+      CopyLow(symbol, PERIOD_H1, 0, bars, low) <= 0)
+      return(50.0); // Default to middle
+   
+   double weekHigh = high[ArrayMaximum(high)];
+   double weekLow  = low[ArrayMinimum(low)];
+   double currentPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
+   
+   if(weekHigh <= weekLow)
+      return(50.0);
+   
+   double range = weekHigh - weekLow;
+   double position = currentPrice - weekLow;
+   double percent = (position / range) * 100.0;
+   
+   return(MathMax(0.0, MathMin(100.0, percent)));
+  }
+
+//+------------------------------------------------------------------+
+//| V2: Get D1 trend direction (200 EMA)                            |
+//+------------------------------------------------------------------+
+int GetD1TrendDirection(const string symbol)
+  {
+   double maBuffer[2];
+   int handle = iMA(symbol, PERIOD_D1, D1MaPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   if(handle == INVALID_HANDLE)
+      return(0);
+   
+   if(CopyBuffer(handle, 0, 0, 2, maBuffer) != 2)
+     {
+      IndicatorRelease(handle);
+      return(0);
+     }
+   
+   IndicatorRelease(handle);
+   
+   double maCurrent = maBuffer[0];
+   double maPrev    = maBuffer[1];
+   double currentPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
+   
+   // Check if price is above/below MA and MA direction
+   if(currentPrice > maCurrent && maCurrent > maPrev)
+      return(1); // Uptrend
+   else if(currentPrice < maCurrent && maCurrent < maPrev)
+      return(-1); // Downtrend
+   
+   return(0); // No clear trend
   }
 
 //+------------------------------------------------------------------+
